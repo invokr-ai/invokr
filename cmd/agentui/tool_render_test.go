@@ -104,3 +104,13 @@ func TestGenericRendererUnchanged(t *testing.T) {
 		t.Fatalf("no-output generic block gained chrome:\n%q", got)
 	}
 }
+
+// TestShellTextDropsExitCodeFact: the status line carries the exit, so the
+// output block must not repeat the tool's "[exit code N]" line. The command's
+// own echo of its status stays.
+func TestShellTextDropsExitCodeFact(t *testing.T) {
+	got := shellText("FAIL ./calc\nexit: 1\n[exit code 1]\n[cwd sub]")
+	if strings.Contains(got, "[exit code") || !strings.Contains(got, "exit: 1") || !strings.Contains(got, "[cwd sub]") {
+		t.Fatalf("shellText = %q", got)
+	}
+}
