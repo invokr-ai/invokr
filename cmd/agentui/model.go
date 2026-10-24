@@ -27,6 +27,7 @@ import (
 )
 
 type model struct {
+	inputMemo     inputAreaMemo
 	ctx           context.Context
 	session       turn.Session
 	historyDB     turn.PromptHistory
@@ -194,10 +195,19 @@ func newModelWithCommands(ctx context.Context, session turn.Session, commands Co
 // styles by value. Called at construction and again whenever the terminal
 // reports its background color.
 func (m *model) applyTheme() {
+	m.inputMemo = inputAreaMemo{} // the box is drawn in theme colours
 	// Only the cursor's row carries the caret; the other rows of a multi-line
 	// draft are blank, the way a shell's continuation prompt reads.
+	// The textarea asks for a prompt once per displayed row, top down, and
+	// finding the cursor's row is linear in the draft, so it is worked out on
+	// the first row of each render and reused: per-row it made typing into a
+	// long draft quadratic (seconds per keystroke past ~1,000 characters).
+	cursorRow := 0
 	m.input.SetPromptFunc(2, func(info textarea.PromptInfo) string {
-		if info.LineNumber != cursorDisplayRow(m.input) {
+		if info.LineNumber == 0 {
+			cursorRow = cursorDisplayRow(m.input)
+		}
+		if info.LineNumber != cursorRow {
 			return ""
 		}
 		return renderPrompt()
@@ -857,10 +867,31 @@ func (m *model) inputArea() string {
 	// Lines counts these rows through inputArea, so the transcript gives the
 	// space up instead of the queue drawing over it.
 	queued := m.queuedArea()
-	if queued == "" {
-		return inputBox(m.mainWidth()).Render(m.input.View())
+	key := inputAreaKey{draft: m.input.Value(), line: m.input.Line(), column: m.input.Column(),
+		width: m.mainWidth(), height: m.input.Height(), focused: m.input.Focused(), queued: queued}
+	if key != m.inputMemo.key || m.inputMemo.view == "" {
+		box := inputBox(m.mainWidth()).Render(m.input.View())
+		if queued != "" {
+			box = queued + "\n" + box
+		}
+		m.inputMemo = inputAreaMemo{key: key, view: box}
 	}
-	return queued + "\n" + inputBox(m.mainWidth()).Render(m.input.View())
+	return m.inputMemo.view
+}
+
+// inputAreaKey is everything the drawn input box depends on. A frame measures
+// the box (chatVisibleLines) and then draws it, and a long draft makes each
+// textarea render cost real time, so the second one reuses the first.
+type inputAreaKey struct {
+	draft                       string
+	line, column, width, height int
+	focused                     bool
+	queued                      string
+}
+
+type inputAreaMemo struct {
+	key  inputAreaKey
+	view string
 }
 
 // queuedArea is the pending-message block: the count, then one dimmed line per
