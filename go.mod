@@ -10,7 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/antonikliment/go-code-metrics v0.0.7
-	github.com/antonikliment/tuikit v0.9.1-0.20261024232133-66fc1ff82e19
+	github.com/antonikliment/tuikit v0.10.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/dustin/go-humanize v1.1.0
