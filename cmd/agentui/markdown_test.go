@@ -120,3 +120,12 @@ func TestSetSyntaxThemeChangesRenderedCode(t *testing.T) {
 		t.Fatal("clearing the stylesheet did not restore the automatic choice")
 	}
 }
+
+// TestCodeBlockKeepsTabIndentation: a tab-indented Go body must not print
+// flush left (R8).
+func TestCodeBlockKeepsTabIndentation(t *testing.T) {
+	got := ansi.Strip(renderMarkdown("```go\nfunc Mul(a, b int) int {\n\treturn a * b\n}\n```", 80))
+	if !strings.Contains(got, "    return a * b") {
+		t.Fatalf("code block = %q, want the body indented", got)
+	}
+}
