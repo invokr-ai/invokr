@@ -691,7 +691,12 @@ func sectionRule(label string, width int) string {
 // soft-wrapped draft makes the two disagree; walking the cursor up on a copy
 // borrows the textarea's own wrap logic rather than re-deriving it.
 func cursorDisplayRow(ta textarea.Model) int {
-	rows := 0
+	// The rows above the cursor inside its own line come straight from
+	// LineInfo; stepping up through them would rehash that whole line once per
+	// row, which is what made a long one-line draft slow to type into. Only the
+	// earlier lines are walked.
+	rows := ta.LineInfo().RowOffset
+	ta.CursorStart()
 	for ta.Line() > 0 || ta.LineInfo().RowOffset > 0 {
 		ta.CursorUp()
 		rows++
