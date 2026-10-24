@@ -1,6 +1,9 @@
 package agentui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A tool with no primaryArgKeys entry falls back to firstStringField. That
 // fallback must not depend on Go's randomised map iteration order, or the
@@ -34,5 +37,17 @@ func TestPrimaryArgCreateToolPrefersName(t *testing.T) {
 		if got := primaryArg("create_tool", args); got != "current_time" {
 			t.Fatalf("primaryArg = %q on iteration %d, want %q", got, i, "current_time")
 		}
+	}
+}
+
+// TestTruncatePreviewKeepsCommandHead: a long shell command keeps its start;
+// only a bare path keeps its tail.
+func TestTruncatePreviewKeepsCommandHead(t *testing.T) {
+	cmd := `go test -count=1 ./... 2>&1 | tail -12; echo "exit: ${PIPESTATUS[0]}"`
+	if got := truncatePreview(cmd, 30); !strings.HasPrefix(got, "go test -count=1") || !strings.HasSuffix(got, "...") {
+		t.Fatalf("command preview = %q, want its head kept", got)
+	}
+	if got := truncatePreview("/home/user/project/internal/pkg/file.go", 20); !strings.HasSuffix(got, "file.go") {
+		t.Fatalf("path preview = %q, want its tail kept", got)
 	}
 }

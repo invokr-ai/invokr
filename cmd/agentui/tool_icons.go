@@ -121,7 +121,9 @@ func truncatePreview(s string, limit int) string {
 	if len(r) <= limit {
 		return s
 	}
-	if strings.Contains(s, "/") {
+	// Paths keep their tail (the file name); a command, whose first word is
+	// not a path, keeps its head so it stays readable.
+	if first, _, _ := strings.Cut(s, " "); strings.Contains(first, "/") {
 		return "..." + string(r[len(r)-(limit-3):])
 	}
 	return string(r[:limit-3]) + "..."
