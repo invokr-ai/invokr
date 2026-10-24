@@ -311,14 +311,16 @@ func writeMessage(b *strings.Builder, msg message, width int, spinnerFrame strin
 			b.WriteString(renderToolBlock(msg, spinnerFrame, width))
 			return
 		}
-		// Non-block tool lines (approval requests/decisions) keep plain text.
+		// Non-block tool lines are invokr's own notices (approval decisions,
+		// mode changes, command feedback): a marker and their own colour keep
+		// them apart from both the model's thinking and its answer.
+		style := ui.Invokr.Notice
 		if strings.HasPrefix(msg.text, "approval denied") {
-			b.WriteString(ui.Invokr.Danger.Render(wrapText(msg.text, width)))
-		} else {
-			b.WriteString(ui.Invokr.Muted.Render(wrapText(msg.text, width)))
+			style = ui.Invokr.Danger
 		}
+		b.WriteString(style.Render("• " + strings.ReplaceAll(wrapText(msg.text, width-2), "\n", "\n  ")))
 	case "reasoning":
-		b.WriteString(ui.Invokr.Muted.Italic(true).Render(indentBlock(wrapText(msg.text, width-len(answerIndent)), answerIndent)))
+		b.WriteString(renderThinkingBlock(msg.text, width))
 	case "error":
 		b.WriteString(ui.Invokr.Danger.Render("error: ") + wrapText(msg.text, width-7))
 	}
@@ -366,3 +368,17 @@ func (c *chatLog) noteStreamRetry() {
 }
 
 const streamRetryLine = "reply cut off · retrying"
+
+// renderThinkingBlock sets reasoning behind a gutter and a "thinking" label, so
+// in a long turn the narration between tool calls is never mistaken for the
+// answer, which keeps the plain indent.
+func renderThinkingBlock(text string, width int) string {
+	gutter := ui.Invokr.Frame.Render(thinkingGutter)
+	lines := strings.Split(wrapText(text, width-len(answerIndent)-len([]rune(thinkingGutter))), "\n")
+	for i, line := range lines {
+		lines[i] = answerIndent + gutter + ui.Invokr.Thinking.Render(line)
+	}
+	return answerIndent + ui.Invokr.Muted.Render("thinking") + "\n" + strings.Join(lines, "\n")
+}
+
+const thinkingGutter = "│ "

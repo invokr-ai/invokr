@@ -24,6 +24,13 @@ type Theme struct {
 	Success lipgloss.Style // completed tools
 	Info    lipgloss.Style // commands, running state
 	Warn    lipgloss.Style // section headers, approvals
+	// Thinking is the model's reasoning and the narration it writes before a
+	// tool call: dimmer than an answer and set behind a gutter, so it never
+	// reads as a reply.
+	Thinking lipgloss.Style
+	// Notice is invokr talking, not the model: mode changes, approval
+	// decisions, command feedback.
+	Notice lipgloss.Style
 
 	// SelectedBg fills the cursor row in the pickers and completion popup —
 	// the one place the design paints a background, because a foreground
@@ -70,6 +77,9 @@ func NewTheme(isDark bool) Theme {
 		Success: fg(palette.Green),
 		Info:    fg(palette.Blue),
 		Warn:    fg(palette.Yellow),
+
+		Thinking: fg(palette.Muted).Italic(true),
+		Notice:   fg(palette.Cyan),
 
 		SelectedBg: d(lipgloss.Color("#ece6fb"), lipgloss.Color("#1c1830")),
 		ChipBg:     d(lipgloss.Color("#eceef4"), lipgloss.Color("#161b27")),
