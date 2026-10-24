@@ -111,7 +111,7 @@ func (patchRenderer) Summary(m message, width int) string {
 	if m.toolDiff == "" {
 		return line
 	}
-	return line + "\n" + renderPatchDiff(m.toolDiff, width, maxDiffLines)
+	return line + "\n" + renderEditDiff(m.editFile, m.toolDiff, width, maxDiffLines)
 }
 
 func (patchRenderer) Detail(m message, width int) string {
@@ -119,7 +119,7 @@ func (patchRenderer) Detail(m message, width int) string {
 	if m.toolDiff == "" {
 		return withOutputBlock(line, m.toolOutput, width, 0)
 	}
-	return line + "\n" + renderPatchDiff(m.toolDiff, width, 0)
+	return line + "\n" + renderEditDiff(m.editFile, m.toolDiff, width, 0)
 }
 
 // gitReadRenderer renders git_read results. A diff/show envelope carries the

@@ -35,7 +35,13 @@ type Request struct {
 	// instead of one derived from Subject. Empty on an Outside request means
 	// it can only be approved once.
 	GrantPattern string
+	// Diff, when set, is the file change a write would make, for the prompt
+	// to show as a diff instead of the raw arguments.
+	Diff *FileDiff
 }
+
+// FileDiff is one file's whole content before and after a proposed write.
+type FileDiff struct{ Path, Before, After string }
 
 type Decision struct {
 	Approved bool

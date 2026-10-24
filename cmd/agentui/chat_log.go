@@ -44,6 +44,10 @@ type message struct {
 	// toolDiff is the unified diff of an applied edit, rendered under the tool
 	// line so ordinary edits are visible without an approval prompt.
 	toolDiff string
+	// editFile is an applied edit's whole file before and after, so its diff
+	// numbers lines by their place in the file. Empty when it could not be
+	// rebuilt; the diff then falls back to the patch fragments.
+	editFile patchSection
 	// toolOutput is the recorded result as the model saw it (capped upstream).
 	// Per-tool renderers show a tail of it collapsed, all of it expanded.
 	toolOutput string
@@ -122,6 +126,7 @@ func (c *chatLog) ApplyEvent(ev events.Event) {
 	settled := c.messages[idx]
 	// Keep only evidence fields; full tool output stays in the transcript owner.
 	settled.toolOutput, settled.toolDiff, settled.toolError = "", "", ""
+	settled.editFile = patchSection{}
 	if prior := slices.IndexFunc(c.recordedTools, func(m message) bool { return m.id == settled.id }); prior >= 0 {
 		c.recordedTools[prior] = settled
 	} else {
@@ -172,6 +177,7 @@ func (c *chatLog) finishToolMessage(t events.ToolPayload, failed bool) int {
 		// A flagged result may not have applied, so it gets no diff.
 		msg.toolDiff = cmp.Or(appliedPatchDiff(msg.toolName, msg.toolArgs),
 			editedFileDiff(msg.toolName, msg.toolArgs))
+		msg.editFile = editedFile(msg.toolName, msg.toolArgs)
 	}
 	if idx < 0 {
 		// No running block to update (e.g. event arrived out of order); append one.
