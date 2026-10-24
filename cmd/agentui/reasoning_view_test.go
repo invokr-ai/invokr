@@ -24,8 +24,19 @@ func TestReasoningShowsBetweenToolCalls(t *testing.T) {
 	}
 	var b strings.Builder
 	writeMessage(&b, c.messages[0], 60, "")
-	if got := strings.Join(strings.Fields(ansi.Strip(b.String())), " "); !strings.Contains(got, strings.TrimSpace(long)) {
+	rendered := ansi.Strip(b.String())
+	if got := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "│", "")), " "); !strings.Contains(got, strings.TrimSpace(long)) {
 		t.Fatalf("reasoning was cut: %q", got)
+	}
+	// It reads as thinking, not as the answer: a label, and a gutter on every line.
+	lines := strings.Split(rendered, "\n")
+	if strings.TrimSpace(lines[0]) != "thinking" {
+		t.Fatalf("first line = %q, want the thinking label", lines[0])
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(strings.TrimLeft(line, " "), "│ ") {
+			t.Fatalf("line without the thinking gutter: %q", line)
+		}
 	}
 }
 
@@ -43,5 +54,15 @@ func TestReasoningGoesAboveStreamedAnswer(t *testing.T) {
 func TestBlankReasoningIsNotAToolEvent(t *testing.T) {
 	if isToolEvent(reasoningEvent(" \n")) || !isToolEvent(reasoningEvent("x")) {
 		t.Fatal("blank reasoning must be dropped, non-blank kept")
+	}
+}
+
+// TestNoticesHaveTheirOwnLook: invokr's own lines (mode changes, approval
+// decisions) carry a marker, not the thinking gutter.
+func TestNoticesHaveTheirOwnLook(t *testing.T) {
+	var b strings.Builder
+	writeMessage(&b, message{role: "tool", text: "mode: auto (future calls; running work keeps its permissions)"}, 80, "")
+	if got := ansi.Strip(b.String()); !strings.HasPrefix(got, "• mode: auto") || strings.Contains(got, "│") {
+		t.Fatalf("notice = %q", got)
 	}
 }
