@@ -31,6 +31,9 @@ type Theme struct {
 	SelectedBg color.Color
 	// ChipBg fills inline code chips (a shell command, a filename).
 	ChipBg color.Color
+	// DiffAddBg and DiffDelBg tint added and removed lines across the full
+	// width of an edit diff, under the syntax colors.
+	DiffAddBg, DiffDelBg color.Color
 
 	Gradient []color.Color
 }
@@ -73,6 +76,8 @@ func NewTheme(isDark bool) Theme {
 
 		SelectedBg: d(lipgloss.Color("#ece6fb"), lipgloss.Color("#1c1830")),
 		ChipBg:     d(lipgloss.Color("#eceef4"), lipgloss.Color("#161b27")),
+		DiffAddBg:  d(lipgloss.Color("#e3f4e8"), lipgloss.Color("#16301f")),
+		DiffDelBg:  d(lipgloss.Color("#fbe6e6"), lipgloss.Color("#3a1a1e")),
 
 		Gradient: []color.Color{
 			d(lipgloss.Color("#6d3fd4"), lipgloss.Color("#b98cff")),

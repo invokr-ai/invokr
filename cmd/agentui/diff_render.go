@@ -1,8 +1,13 @@
 package agentui
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
+
+	"github.com/sergi/go-diff/diffmatchpatch"
 
 	"github.com/antonikliment/tuikit"
 	"github.com/invokr-ai/invokr/surface/ui"
@@ -12,9 +17,9 @@ import (
 // word emphasis, side-by-side when the pane is wide enough). DiffView takes
 // before/after *contents*, and the transcript only carries the apply_patch
 // patch text — so the fragments are reconstructed per file from the patch's
-// context/-/+ lines. Caveat: the gutter line numbers count within the
-// reconstructed fragment, not the real file; real positions would need the
-// pre/post file contents plumbed through the tool event.
+// context/-/+ lines. An edit's whole file is rebuilt where possible (see
+// editedFile), so its lines are numbered by their place in the file; an
+// apply_patch fragment still counts from 1.
 
 // patchSection is one file's worth of an apply_patch patch.
 type patchSection struct {
@@ -90,7 +95,8 @@ func diffViewFor(s patchSection) *tuikit.DiffView {
 	if len(diffViewMemo) > 32 {
 		clear(diffViewMemo)
 	}
-	dv := tuikit.NewDiffView(ui.Invokr.Palette).Before(s.path, s.before).After(s.path, s.after).Highlighter(tuikit.ChromaHighlighter(chromaTheme()))
+	dv := tuikit.NewDiffView(ui.Invokr.Palette).Before(s.path, s.before).After(s.path, s.after).
+		Highlighter(tuikit.ChromaHighlighter(chromaTheme())).Tint(ui.Invokr.DiffAddBg, ui.Invokr.DiffDelBg)
 	diffViewMemo[key] = dv
 	return dv
 }
@@ -116,6 +122,43 @@ func renderPatchDiff(patch string, width, maxLines int) string {
 	return renderDiffSections(parsePatchSections(patch), patch, width, maxLines)
 }
 
+// renderEditDiff renders an edit from its whole file when editedFile could
+// rebuild it, and from the patch fragments otherwise.
+func renderEditDiff(file patchSection, patch string, width, maxLines int) string {
+	if file.path == "" {
+		return renderPatchDiff(patch, width, maxLines)
+	}
+	return renderDiffSections([]patchSection{file}, patch, width, maxLines)
+}
+
+// editedFile rebuilds an applied edit's file before and after: after is the
+// file on disk, before is it with each replacement undone, last first. It
+// gives up (empty section) when the file cannot be read or a replacement's new
+// text is not in it, e.g. the file changed again since.
+func editedFile(name, argsJSON string) patchSection {
+	var fields struct {
+		Path  string       `json:"path"`
+		Edits []editCallOp `json:"edits"`
+	}
+	if name != "edit" || json.Unmarshal([]byte(argsJSON), &fields) != nil || fields.Path == "" || len(fields.Edits) == 0 {
+		return patchSection{}
+	}
+	data, err := os.ReadFile(fields.Path)
+	if err != nil {
+		return patchSection{}
+	}
+	after := string(data)
+	before := after
+	for _, op := range slices.Backward(fields.Edits) {
+		i := strings.LastIndex(before, op.New)
+		if op.New == "" || i < 0 {
+			return patchSection{}
+		}
+		before = before[:i] + op.Old + before[i+len(op.New):]
+	}
+	return patchSection{path: fields.Path, before: before, after: after}
+}
+
 func renderDiffSections(sections []patchSection, raw string, width, maxLines int) string {
 	if len(sections) == 0 || len(raw) > maxDiffViewBytes {
 		return renderDiffBlock(raw, width, maxLines)
@@ -134,15 +177,38 @@ func renderDiffSections(sections []patchSection, raw string, width, maxLines int
 	return strings.Join(out, "\n")
 }
 
+// renderPatchSection is one file's diff: a "path +N −M" header over the
+// tinted unified body.
 func renderPatchSection(s patchSection, width, budget int) string {
-	header := "    " + ui.Invokr.Frame.Render("── ") + ui.Invokr.Text.Render(s.path)
+	header := "    " + ui.Invokr.Text.Bold(true).Render(s.path)
 	if s.deleted {
 		return header + " " + ui.Invokr.Danger.Render("(deleted)")
 	}
+	adds, dels := lineDelta(s.before, s.after)
+	header += " " + ui.Invokr.Success.Render(fmt.Sprintf("+%d", adds)) + " " + ui.Invokr.Danger.Render(fmt.Sprintf("−%d", dels))
 	dv := diffViewFor(s)
 	dv.MaxLines(max(0, budget-1))
-	body := dv.RenderSplit(max(20, width-4))
+	body := dv.Render(max(20, width-4))
 	return header + "\n" + indentBlock(body, "    ")
+}
+
+// lineDelta counts the lines added and removed between two texts.
+func lineDelta(before, after string) (adds, dels int) {
+	dmp := diffmatchpatch.New()
+	a, b, index := dmp.DiffLinesToChars(before, after)
+	for _, d := range dmp.DiffCharsToLines(dmp.DiffMain(a, b, false), index) {
+		n := strings.Count(d.Text, "\n")
+		if !strings.HasSuffix(d.Text, "\n") && d.Text != "" {
+			n++
+		}
+		switch d.Type {
+		case diffmatchpatch.DiffInsert:
+			adds += n
+		case diffmatchpatch.DiffDelete:
+			dels += n
+		}
+	}
+	return adds, dels
 }
 
 // renderDiffBlock is the pre-DiffView plain fallback: colorized +/- lines,

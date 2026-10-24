@@ -1,6 +1,8 @@
 package agentui
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -81,10 +83,39 @@ func TestRenderPatchDiffFallsBackOnHugeInput(t *testing.T) {
 	}
 }
 
-func TestRenderPatchDiffSplitsWhenWide(t *testing.T) {
+// TestRenderPatchDiffIsUnified: one column under a "path +N −M" header, with
+// no side-by-side split and no ---/+++/@@ lines, even when wide (R3).
+func TestRenderPatchDiffIsUnified(t *testing.T) {
 	got := ansi.Strip(renderPatchDiff(
 		"*** Begin Patch\n*** Update File: a.go\n@@\n ctx\n-old\n+new\n*** End Patch", 130, 0))
-	if !strings.Contains(got, "│") {
-		t.Fatalf("wide render is not side-by-side:\n%s", got)
+	if !strings.HasPrefix(strings.TrimSpace(got), "a.go +1 −1") {
+		t.Fatalf("header missing:\n%s", got)
+	}
+	for _, bad := range []string{"│", "---", "+++", "@@"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("unified render has %q:\n%s", bad, got)
+		}
+	}
+}
+
+// TestEditedFileNumbersLinesInTheFile: an edit deep in a file is numbered by
+// its place there, not from 1 (R4).
+func TestEditedFileNumbersLinesInTheFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	lines[9] = "changed"
+	if err := os.WriteFile("f.txt", []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := editedFile("edit", `{"path":"f.txt","edits":[{"oldText":"line 10","newText":"changed"}]}`)
+	if !strings.Contains(file.before, "line 10") || strings.Contains(file.before, "changed") {
+		t.Fatalf("before not rebuilt: %q", file.before)
+	}
+	got := ansi.Strip(renderEditDiff(file, "", 100, 0))
+	if !strings.Contains(got, "10 - line 10") || !strings.Contains(got, "10 + changed") {
+		t.Fatalf("lines not numbered by file position:\n%s", got)
 	}
 }

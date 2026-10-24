@@ -10,7 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/antonikliment/go-code-metrics v0.0.7
-	github.com/antonikliment/tuikit v0.9.0
+	github.com/antonikliment/tuikit v0.10.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/dustin/go-humanize v1.1.0
@@ -20,6 +20,7 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/rivt-ai/go-inference-router v0.9.1
 	github.com/rivt-ai/go-inference-router/router v0.9.1
+	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
@@ -72,7 +73,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
 	github.com/stytchauth/squirrel v1.5.3-0.20230822204145-fbce445169d2 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

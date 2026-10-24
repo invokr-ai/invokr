@@ -52,6 +52,7 @@ func (op *editOp) UnmarshalJSON(data []byte) error {
 type preparedEdit struct {
 	args                                     editArgs
 	displayPath, absPath, updated, operation string
+	original                                 string // the file before the write, for the approval diff
 	mode                                     os.FileMode
 	replaced                                 int
 }
@@ -151,6 +152,9 @@ func prepareContent(plan preparedEdit) (preparedEdit, error) {
 		return preparedEdit{}, fmt.Errorf("edit %s: path is a directory", plan.displayPath)
 	default:
 		plan.operation, plan.mode = "overwrite", info.Mode().Perm()
+		if content, readErr := os.ReadFile(plan.absPath); readErr == nil {
+			plan.original = string(content)
+		}
 	}
 	plan.updated, plan.replaced = *plan.args.Content, 1
 	return plan, nil
@@ -176,7 +180,7 @@ func prepareReplacement(plan preparedEdit) (preparedEdit, error) {
 	if err != nil {
 		return preparedEdit{}, err
 	}
-	plan.updated, plan.replaced = updated, replaced
+	plan.updated, plan.replaced, plan.original = updated, replaced, original
 	return plan, nil
 }
 
@@ -611,7 +615,11 @@ func windowScore(lines, want []string, start int) int {
 }
 
 func editApprovalRequest(plan preparedEdit) approval.Request {
-	return approval.Request{Tool: "edit", Reason: "workspace write", Tier: "write_workspace", Summary: fmt.Sprintf("%s %s", plan.action("edit"), plan.displayPath), Details: fmt.Sprintf("Replacements: %d\n\n%s", plan.replaced, describeOps(plan.args)), Subject: plan.displayPath, SubjectIsPathList: true}
+	req := approval.Request{Tool: "edit", Reason: "workspace write", Tier: "write_workspace", Summary: fmt.Sprintf("%s %s", plan.action("edit"), plan.displayPath), Details: fmt.Sprintf("Replacements: %d\n\n%s", plan.replaced, describeOps(plan.args)), Subject: plan.displayPath, SubjectIsPathList: true}
+	if plan.operation != "delete" {
+		req.Diff = &approval.FileDiff{Path: plan.displayPath, Before: plan.original, After: plan.updated}
+	}
+	return req
 }
 
 // describeOps renders the requested change for the approval prompt, whichever
