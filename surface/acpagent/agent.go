@@ -30,7 +30,8 @@ type chatSession struct {
 	turn.IdentifiedSession
 	approvals *approval.Broker
 	turnMu    sync.Mutex
-	noticed   bool // the update notice was sent in this session; guarded by turnMu
+	noticed   bool     // the update notice was sent in this session; guarded by turnMu
+	models    []string // listed at session/new; read-only after
 }
 
 // Commands are the slash commands a chat runs without the model.
@@ -84,15 +85,27 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 		return acp.NewSessionResponse{}, err
 	}
 	id := acp.SessionID(sess.SessionID())
-	a.sessions.Store(id, &chatSession{IdentifiedSession: sess, approvals: broker})
+	chat := &chatSession{IdentifiedSession: sess, approvals: broker}
+	listModels(ctx, chat)
+	a.sessions.Store(id, chat)
+	commands := []acp.AvailableCommand{modeCommand}
 	if a.commands != nil {
-		// Not ordered against the response: the library offers no hook, and a
-		// client may see the update just before session/new returns.
-		go func() {
-			_ = a.update(context.WithoutCancel(ctx), id, acp.SessionUpdate{AvailableCommandsUpdate: &acp.AvailableCommandsUpdate{AvailableCommands: a.commands.Available()}})
-		}()
+		commands = append(commands, a.commands.Available()...)
 	}
-	return acp.NewSessionResponse{SessionID: id}, nil
+	// Not ordered against the response: the library offers no hook, and a
+	// client may see the update just before session/new returns.
+	go func() {
+		_ = a.update(context.WithoutCancel(ctx), id, acp.SessionUpdate{AvailableCommandsUpdate: &acp.AvailableCommandsUpdate{AvailableCommands: commands}})
+	}()
+	return acp.NewSessionResponse{SessionID: id, Modes: modeState(broker.Policy), ConfigOptions: configOptions(chat)}, nil
+}
+
+func (a *Agent) session(id acp.SessionID) (*chatSession, error) {
+	v, ok := a.sessions.Load(id)
+	if !ok {
+		return nil, acp.NewError(acp.ErrInvalidParams, fmt.Sprintf("acp: unknown session %q", id))
+	}
+	return v.(*chatSession), nil
 }
 
 func (a *Agent) update(ctx context.Context, id acp.SessionID, u acp.SessionUpdate) error {
@@ -109,11 +122,10 @@ func sameDir(a, b string) bool {
 }
 
 func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResponse, error) {
-	v, ok := a.sessions.Load(req.SessionID)
-	if !ok {
-		return acp.PromptResponse{}, acp.NewError(acp.ErrInvalidParams, fmt.Sprintf("acp: unknown session %q", req.SessionID))
+	sess, err := a.session(req.SessionID)
+	if err != nil {
+		return acp.PromptResponse{}, err
 	}
-	sess := v.(*chatSession)
 	var text []string
 	for _, block := range req.Prompt {
 		if block.Text == nil {
@@ -124,15 +136,26 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 	sess.turnMu.Lock()
 	defer sess.turnMu.Unlock()
 	input := strings.Join(text, "\n")
+	if reply, ok := a.modeText(ctx, req.SessionID, sess, input); ok {
+		return a.reply(ctx, req.SessionID, reply)
+	}
 	if a.commands != nil {
 		if reply, prompt, ok := a.commands.Run(ctx, sess.IdentifiedSession, input); ok {
 			if prompt == "" {
-				return a.reply(ctx, req.SessionID, reply)
+				return a.commandReply(ctx, req.SessionID, sess, input, reply)
 			}
 			input = prompt
 		}
 	}
 	return a.send(ctx, req.SessionID, sess, input)
+}
+
+// commandReply answers a command, first telling the client about any option it changed.
+func (a *Agent) commandReply(ctx context.Context, id acp.SessionID, sess *chatSession, input, reply string) (acp.PromptResponse, error) {
+	if configChanged(input) {
+		_ = a.update(ctx, id, acp.SessionUpdate{ConfigOptionUpdate: &acp.ConfigOptionUpdate{ConfigOptions: configOptions(sess)}})
+	}
+	return a.reply(ctx, id, reply)
 }
 
 // send runs one model turn; the caller holds sess.turnMu.

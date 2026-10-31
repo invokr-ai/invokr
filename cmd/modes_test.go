@@ -24,6 +24,7 @@ func TestStartupModeFlags(t *testing.T) {
 		{"conflict", []string{"--yolo", "--mode=auto"}, "", true},
 		{"legacy-conflict", []string{"exec", "--allow-all", "--mode=auto", "task"}, "", true},
 		{"wrong-command", []string{"doctor", "--mode=auto"}, "", true},
+		{"acp", []string{"acp"}, approval.Manual, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, _ := NewRootCmd(config.AppConfig{})
@@ -41,6 +42,9 @@ func TestStartupModeFlags(t *testing.T) {
 			p, err := startupMode(command)
 			if (err != nil) != tc.invalid {
 				t.Fatalf("policy=%v error=%v", p, err)
+			}
+			if !tc.invalid && p == nil {
+				t.Fatal("no policy: standing rules would never attach") // nil Mode() reads as manual
 			}
 			if !tc.invalid && p.Mode() != tc.mode {
 				t.Fatalf("mode=%s want %s", p.Mode(), tc.mode)
