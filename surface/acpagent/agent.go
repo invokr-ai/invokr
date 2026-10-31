@@ -30,7 +30,8 @@ type chatSession struct {
 	turn.IdentifiedSession
 	approvals *approval.Broker
 	turnMu    sync.Mutex
-	noticed   bool // the update notice was sent in this session; guarded by turnMu
+	noticed   bool     // the update notice was sent in this session; guarded by turnMu
+	models    []string // listed at session/new; read-only after
 }
 
 // Commands are the slash commands a chat runs without the model.
@@ -85,6 +86,7 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	}
 	id := acp.SessionID(sess.SessionID())
 	chat := &chatSession{IdentifiedSession: sess, approvals: broker}
+	listModels(ctx, chat)
 	a.sessions.Store(id, chat)
 	commands := []acp.AvailableCommand{modeCommand}
 	if a.commands != nil {
@@ -95,7 +97,7 @@ func (a *Agent) NewSession(ctx context.Context, req acp.NewSessionRequest) (acp.
 	go func() {
 		_ = a.update(context.WithoutCancel(ctx), id, acp.SessionUpdate{AvailableCommandsUpdate: &acp.AvailableCommandsUpdate{AvailableCommands: commands}})
 	}()
-	return acp.NewSessionResponse{SessionID: id, Modes: modeState(broker.Policy), ConfigOptions: configOptions(ctx, chat)}, nil
+	return acp.NewSessionResponse{SessionID: id, Modes: modeState(broker.Policy), ConfigOptions: configOptions(chat)}, nil
 }
 
 func (a *Agent) session(id acp.SessionID) (*chatSession, error) {
@@ -151,7 +153,7 @@ func (a *Agent) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptRe
 // commandReply answers a command, first telling the client about any option it changed.
 func (a *Agent) commandReply(ctx context.Context, id acp.SessionID, sess *chatSession, input, reply string) (acp.PromptResponse, error) {
 	if configChanged(input) {
-		_ = a.update(ctx, id, acp.SessionUpdate{ConfigOptionUpdate: &acp.ConfigOptionUpdate{ConfigOptions: configOptions(ctx, sess)}})
+		_ = a.update(ctx, id, acp.SessionUpdate{ConfigOptionUpdate: &acp.ConfigOptionUpdate{ConfigOptions: configOptions(sess)}})
 	}
 	return a.reply(ctx, id, reply)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -98,6 +99,9 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 	rs, canReason := sess.IdentifiedSession.(reasoningSession)
 	switch {
 	case req.ConfigID == configModel && canModel:
+		if !slices.Contains(sess.models, value) {
+			return acp.SetSessionConfigOptionResponse{}, acp.NewError(acp.ErrInvalidParams, fmt.Sprintf("acp: model %q is not offered", value))
+		}
 		ms.SetModel(value)
 	case req.ConfigID == configReasoning && canReason:
 		err = rs.SetReasoningEffort(value)
@@ -107,21 +111,34 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, req acp.SetSessionCo
 	if err != nil {
 		return acp.SetSessionConfigOptionResponse{}, acp.NewError(acp.ErrInvalidParams, err.Error())
 	}
-	return acp.SetSessionConfigOptionResponse{ConfigOptions: configOptions(ctx, sess)}, nil
+	return acp.SetSessionConfigOptionResponse{ConfigOptions: configOptions(sess)}, nil
+}
+
+// listModels asks the model server once per session, so later option
+// updates never wait on it; the current model alone stands in on failure.
+func listModels(ctx context.Context, sess *chatSession) {
+	ms, ok := sess.IdentifiedSession.(modelSession)
+	if !ok {
+		return
+	}
+	sess.models = []string{ms.Model()}
+	if lister, ok := sess.IdentifiedSession.(modelLister); ok {
+		listCtx, cancel := context.WithTimeout(ctx, listModelsWait)
+		defer cancel()
+		if listed, err := lister.ListModels(listCtx); err == nil && len(listed) > 0 {
+			sess.models = listed
+		}
+	}
 }
 
 // configOptions offers the model and reasoning effort as selects; a session
 // that supports neither offers none.
-func configOptions(ctx context.Context, sess *chatSession) []acp.SessionConfigOption {
+func configOptions(sess *chatSession) []acp.SessionConfigOption {
 	var out []acp.SessionConfigOption
 	if ms, ok := sess.IdentifiedSession.(modelSession); ok {
-		models := []string{ms.Model()}
-		if lister, ok := sess.IdentifiedSession.(modelLister); ok {
-			listCtx, cancel := context.WithTimeout(ctx, listModelsWait)
-			if listed, err := lister.ListModels(listCtx); err == nil && len(listed) > 0 {
-				models = listed
-			}
-			cancel()
+		models := sess.models
+		if !slices.Contains(models, ms.Model()) {
+			models = append(slices.Clone(models), ms.Model()) // switched by /model or /profile
 		}
 		out = append(out, selectConfig(configModel, "Model", acp.SessionConfigOptionCategoryModel, ms.Model(), models))
 	}
