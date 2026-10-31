@@ -62,6 +62,7 @@ type commandSpec struct {
 	handler              commandHandler
 	plain                plainHandler
 	needsBackend         bool
+	skill                bool // submits the skill's instructions as a turn
 }
 
 var commandRegistry []commandSpec

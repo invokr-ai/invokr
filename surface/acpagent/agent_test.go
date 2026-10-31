@@ -35,6 +35,9 @@ func (s *stubSession) Send(ctx context.Context, text string) (turn.AgentResponse
 	case "fail":
 		return turn.AgentResponse{}, errors.New("provider down")
 	}
+	if strings.HasPrefix(text, "echo ") {
+		return turn.AgentResponse{Message: text}, nil
+	}
 	if _, err := s.broker.RequestApproval(ctx, approval.Request{Tool: "shell", Summary: "run ls"}); err != nil {
 		return turn.AgentResponse{Message: "denied"}, nil
 	}
@@ -74,6 +77,11 @@ func selectOption(i int) func(acp.RequestPermissionRequest) (acp.RequestPermissi
 
 func connect(t *testing.T, client *stubClient) *acp.ClientConn {
 	t.Helper()
+	return connectWith(t, client, nil)
+}
+
+func connectWith(t *testing.T, client *stubClient, commands Commands) *acp.ClientConn {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	toAgentR, toAgentW := io.Pipe()
@@ -83,7 +91,7 @@ func connect(t *testing.T, client *stubClient) *acp.ClientConn {
 		broker := approval.NewBroker()
 		return &stubSession{fmt.Sprintf("sess-%d", n.Add(1)), broker}, broker, nil
 	}
-	go func() { _ = Serve(ctx, toAgentR, toClientW, newSession) }()
+	go func() { _ = Serve(ctx, toAgentR, toClientW, newSession, commands) }()
 	cc := acp.Connect(ctx, client, toClientR, toAgentW)
 	t.Cleanup(func() { _ = cc.Close() })
 	init, err := cc.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.V1})
@@ -348,4 +356,59 @@ func TestCancelStopsPrompt(t *testing.T) {
 	if resp := <-done; resp.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("stop reason = %q, want cancelled", resp.StopReason)
 	}
+}
+
+type stubCommands struct{}
+
+func (stubCommands) Available() []acp.AvailableCommand {
+	return []acp.AvailableCommand{{Name: "usage", Description: "show token usage"}}
+}
+
+func (stubCommands) Run(_ context.Context, sess turn.Session, text string) (string, string, bool) {
+	if _, ok := sess.(*stubSession); !ok {
+		return "got a wrapper, not the runtime session", "", true // commands type-assert the session's optional interfaces
+	}
+	switch {
+	case text == "/usage":
+		return "12 tokens", "", true
+	case strings.HasPrefix(text, "/skill:x"):
+		return "", "echo follow skill x", true
+	}
+	return "", "", false
+}
+
+func TestSlashCommands(t *testing.T) {
+	client := &stubClient{decide: selectOption(0)}
+	cc := connectWith(t, client, stubCommands{})
+	id := newSession(t, cc)
+	deadline := time.Now().Add(2 * time.Second)
+	for !hasCommands(client) {
+		if time.Now().After(deadline) {
+			t.Fatal("no available_commands_update after session/new")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for text, want := range map[string]string{
+		"/usage":        "12 tokens",
+		"/skill:x task": "echo follow skill x",
+		"echo /unknown": "echo /unknown",
+	} {
+		if _, err := prompt(cc, id, text); err != nil {
+			t.Fatal(err)
+		}
+		if got := lastReply(t, client); !strings.HasPrefix(got, want) {
+			t.Errorf("%q replied %q, want %q", text, got, want)
+		}
+	}
+}
+
+func hasCommands(c *stubClient) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, u := range c.updates {
+		if u.AvailableCommandsUpdate != nil && u.AvailableCommandsUpdate.AvailableCommands[0].Name == "usage" {
+			return true
+		}
+	}
+	return false
 }

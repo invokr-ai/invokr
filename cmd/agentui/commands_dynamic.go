@@ -59,6 +59,7 @@ func dynamicSpec(command DynamicCommand) commandSpec {
 	if command.Kind == "skill" {
 		spec.handler = runSkillCommand
 		spec.plain = runPlainSkill
+		spec.skill = true
 	}
 	return spec
 }
