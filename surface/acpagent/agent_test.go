@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,14 +51,19 @@ var ranLs = turn.AgentResponse{Message: "ran ls", ToolFailures: []turn.ToolOutco
 type stubClient struct {
 	decide func(acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
 
-	mu      sync.Mutex
-	asked   []acp.RequestPermissionRequest
-	updates []acp.SessionUpdate
+	mu       sync.Mutex
+	asked    []acp.RequestPermissionRequest
+	updates  []acp.SessionUpdate
+	commands []acp.AvailableCommand // kept apart: it arrives asynchronously after session/new
 }
 
 func (c *stubClient) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if u := n.Update.AvailableCommandsUpdate; u != nil {
+		c.commands = u.AvailableCommands
+		return nil
+	}
 	c.updates = append(c.updates, n.Update)
 	return nil
 }
@@ -89,6 +95,7 @@ func connectWith(t *testing.T, client *stubClient, commands Commands) *acp.Clien
 	var n atomic.Int32
 	newSession := func(string) (turn.IdentifiedSession, *approval.Broker, error) {
 		broker := approval.NewBroker()
+		broker.Policy = approval.NewPolicy(approval.Manual, false)
 		return &stubSession{fmt.Sprintf("sess-%d", n.Add(1)), broker}, broker, nil
 	}
 	go func() { _ = Serve(ctx, toAgentR, toClientW, newSession, commands) }()
@@ -405,10 +412,36 @@ func TestSlashCommands(t *testing.T) {
 func hasCommands(c *stubClient) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for _, u := range c.updates {
-		if u.AvailableCommandsUpdate != nil && u.AvailableCommandsUpdate.AvailableCommands[0].Name == "usage" {
-			return true
+	return slices.ContainsFunc(c.commands, func(cmd acp.AvailableCommand) bool { return cmd.Name == "usage" })
+}
+
+func TestModesArePerSession(t *testing.T) {
+	client := &stubClient{decide: selectOption(0)}
+	cc := connect(t, client)
+	wd, _ := os.Getwd()
+	first, err := cc.NewSession(context.Background(), acp.NewSessionRequest{Cwd: wd})
+	if err != nil || first.Modes == nil || first.Modes.CurrentModeID != "manual" || len(first.Modes.AvailableModes) != 3 {
+		t.Fatalf("session/new modes = %+v, %v", first.Modes, err)
+	}
+	other := newSession(t, cc)
+	if _, err := cc.SetSessionMode(context.Background(), acp.SetSessionModeRequest{SessionID: first.SessionID, ModeID: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cc.SetSessionMode(context.Background(), acp.SetSessionModeRequest{SessionID: first.SessionID, ModeID: "yolo"}); err == nil {
+		t.Fatal("set_mode accepted yolo")
+	}
+	for id, want := range map[acp.SessionID]string{first.SessionID: "mode: plan", other: "mode: manual"} {
+		if _, err := prompt(cc, id, "/mode"); err != nil {
+			t.Fatal(err)
+		}
+		if got := lastReply(t, client); got != want {
+			t.Errorf("/mode in %s = %q, want %q", id, got, want)
 		}
 	}
-	return false
+	if _, err := prompt(cc, other, "/mode auto"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastReply(t, client); !strings.HasPrefix(got, "mode: auto") {
+		t.Errorf("/mode auto = %q", got)
+	}
 }

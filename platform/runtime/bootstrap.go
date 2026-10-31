@@ -531,11 +531,14 @@ func (d toolLayerDeps) sessionDeps(sessionID string, caller *tools.Caller, promp
 }
 
 // chatSessionFactory returns a ChatSessionFunc that builds a fresh session
-// with its own approval broker, sharing the runtime tool-layer dependencies.
+// with its own approval broker and policy, sharing the runtime tool-layer
+// dependencies: one chat's /mode must not change another's.
 func (d toolLayerDeps) chatSessionFactory() ChatSessionFunc {
 	return func(sessionID string) (turn.IdentifiedSession, *approval.Broker, error) {
 		fresh := d
 		fresh.providerContext, fresh.recallGate = nil, nil // Keep chat sessions independent of CLI-only context.
+		// invokr acp starts without a policy; its chats get the TUI's default.
+		fresh.policy = cmp.Or(d.policy.Clone(), approval.NewPolicy(approval.Manual, false))
 		return fresh.newSession(sessionID)
 	}
 }

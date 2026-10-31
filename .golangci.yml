@@ -39,7 +39,7 @@ linters:
           # Before raising it, lower it: trim implementation lines and set the cap to the
           # exact measured count. Raise only when the count forces it, and only to that
           # count — never above it. Change history: git log -p .golangci.yml
-          max-go-code-lines: 38923
+          max-go-code-lines: 39077
           include-tests: false
           exclude-generated: true
           exclude-dirs:

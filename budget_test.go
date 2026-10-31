@@ -46,7 +46,7 @@ var budgets = []area{
 	{"internal", 153},
 
 	// Agent loop and tool plumbing — the core of the core.
-		{"agent", 3833},
+	{"agent", 3833},
 	{"tools/core", 1344},
 	{"tools/system", 11320},
 	{"tools", 600}, // tools/, tools/integrations
@@ -58,7 +58,7 @@ var budgets = []area{
 	{"capability", 4700},
 
 	// Platform, config, clients, surfaces, leaf helpers.
-	{"platform", 2520},
+	{"platform", 2521},
 	{"config", 1389},
 	{"clients", 800},
 	{"surface", 1600},
